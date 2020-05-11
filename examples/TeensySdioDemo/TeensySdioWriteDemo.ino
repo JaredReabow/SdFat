@@ -5,25 +5,34 @@
  * 
  * 
   */
+#define USBMODE 0
+#define SDLOGGINGMODE 1
+#define NOSDDETECTED 3
+#define SWITCHPIN 23
+
 #include "SdFat.h"
 SdFatSdioEX sdEx;
 File file;
   #include <MTP.h>
   MTPStorage_SD storage;
   MTPD          mtpd(&storage);
-  bool checkSDInstalled(){
-    if (!SD.begin()) {
-      Serial.println("MTP failed");
-      delay(5000);
-      return false;
+  bool checkSDInstalled(int type){
+    if(type == 0){
+      file.close();
+      if (!SD.begin()) {
+        Serial.print("MTP failed");
+        return false;
+      } else {
+        return true;
+      }
     } else {
-      return true;
-    }
-    if (!sdEx.begin()) {
-      Serial.print("SdFatSdioEX begin() failed");
-      return false;
-    } else {
-      return true;
+      file.close();
+      if (!sdEx.begin()) {
+        Serial.print("SdFatSdioEX begin() failed");
+        return false;
+      } else {
+        return true;
+      }
     }
     // make sdEx the current volume.
     //sdEx.chvol();
@@ -36,7 +45,11 @@ File file;
 
 volatile int  status = 0;
 volatile bool sdfound = 0;
+volatile bool mode = USBMODE;
 volatile int  count = 1;
+volatile bool currentSwitchPosition;
+volatile bool previousSwitchPosition;
+
 int counter = 0;
 String outputString = "";
 
@@ -47,6 +60,8 @@ void rtc_seconds_isr() {//activates each second
     counter = 0;
     digitalWrite(LED_BUILTIN, LOW);
 }
+
+
 
 
 void setup() {
@@ -64,14 +79,13 @@ void setup() {
 
   Serial.begin(2000000);
   pinMode(LED_BUILTIN, OUTPUT);
-  if (checkSDInstalled()==true) {
+  if (checkSDInstalled(0)==true) {
     sdfound = true;
   } else {
     sdfound = false;
   }
   
-  pinMode(23,HIGH);
-  Serial3.begin(57600);
+  pinMode(SWITCHPIN,HIGH);
   
 
 }
@@ -80,23 +94,39 @@ void setup() {
 void loop() {
   counter++;
   viewSDonUSB();
- /* while(Serial3.available()) {
-    Serial.println(Serial3.readString());
-  }*/
 }
 
 
 void viewSDonUSB(){
+  currentSwitchPosition = digitalRead(SWITCHPIN);
   if(sdfound == true){ // if an SD card is found and working
-      if(digitalRead(23) == HIGH){ // if the hardware pin for SD view is enabled
+    if(currentSwitchPosition != previousSwitchPosition){
+      previousSwitchPosition = currentSwitchPosition;
+      if(currentSwitchPosition == HIGH){
+        Serial.println("USB MODE ENABLED");
+        checkSDInstalled(USBMODE);
+        mode = USBMODE;
+      } else {
+        Serial.println("SD LOGGING MODE ENABLED");
+        checkSDInstalled(SDLOGGINGMODE);
+        mode = SDLOGGINGMODE;
+      }
+    }
+  } else { 
+    outputString = ("NO SD CARD DETECTED");
+    mode = NOSDDETECTED;
+  } 
+
+  if(mode != NOSDDETECTED){ 
+      if(mode == USBMODE){ // if the hardware pin for SD view is enabled
         outputString = ("usb storage enabled, system will run slower");
         enableUSB(); //448473 cycles no pin check//
         digitalWriteFast(LED_BUILTIN,HIGH);
-      } else { 
+      } else if(mode == SDLOGGINGMODE){ 
         outputString = ("HARDWARE SD TO PC DISABLED"); digitalWriteFast(LED_BUILTIN,LOW);
         runTest();
-      } //377873 no pincheck
-  } else { outputString = ("NO SD CARD DETECTED"); } 
+      } 
+  }
 }
 
 
@@ -113,17 +143,19 @@ void runTest() {
   char fileNameStore[20];
   fileString.toCharArray(fileNameStore, 20);
   Serial.print("FILE NAME ");Serial.println(fileString);*/
-  if (!sdEx.open("teensyDemo.txt", O_WRITE | O_CREAT | O_AT_END)) {
+  if (!file.open("TeensyDemo.txt", O_WRITE | O_CREAT | O_AT_END)) {
         Serial.println("SD CARD FILE NOT OPENED");
   } else {
     Serial.println("SD CARD FILE OPENED");
   }
-  if (!file.println("I LIKE TRAINS in teensyMTP demo")) {
+  String outputString = String(millis());
+  outputString += "-By JR- Teensy MTP & SD demo";
+  if (!file.println(outputString)) {
         Serial.println("write failed");
   } else {
     Serial.println("write success");
     delay(1000);
   }
-  sdEx.close();
+  file.close();
 }
   
